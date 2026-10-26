@@ -64,16 +64,10 @@ py main.py
 
 The ticker prompt is built from non-empty tickers in the workbook's `Report` worksheet. Enter one listed symbol to analyze just that stock, or enter `ALL` to analyze every listed ticker sequentially. A failed ticker is reported and the batch continues; a failure summary is printed at the end. Running all tickers can take a while and may generate substantial OpenAI API usage/costs. The workbook must be saved after the Capital IQ refresh because this program reads cached formula results; it does not calculate Capital IQ formulas.
 
-To keep the workbook somewhere else, set the path before starting the program:
-
-```powershell
-$env:CAPITAL_IQ_XLSX_PATH = "C:\path\to\report.xlsx"
-py main.py
-```
 
 ## Capital IQ workbook
 
-The worksheet must be named `Report`. Put headers in row 1 and one ticker per row beginning in row 2. The importer recognizes these fields:
+The worksheet is named `Report`. Put headers in row 1 and one ticker per row beginning in row 2. The importer recognizes these fields:
 
 ```text
 ticker,as_of_date,target_mean,target_high,target_low,number_of_analysts,recommendation_key,forward_eps,forward_revenue,eps_growth_pct,revenue_growth_pct,pe_ratio,price_to_book,free_cash_flow,market_cap,total_debt,cash_and_equivalents,operating_margins_pct,ebitda_margin_pct,held_percent_institutions_pct
