@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 import xml.etree.ElementTree as ET
 
@@ -20,6 +21,7 @@ from council import (
 )
 from forecast_store import ForecastStore
 from ingestion import DataIngestionPipeline
+from main import prompt_ticker, run_all_tickers
 
 
 def _write_capital_iq_workbook(path: Path, headers, rows):
@@ -521,6 +523,28 @@ class ForecastStoreTests(unittest.TestCase):
             self.assertEqual(summary["due"], 1)
             self.assertEqual(summary["scored"], 0)
             self.assertIsNone(summary["average_brier_score"])
+
+
+class BatchTickerTests(unittest.IsolatedAsyncioTestCase):
+    def test_prompt_accepts_all_tickers_option(self):
+        with patch("builtins.input", return_value="all"):
+            self.assertEqual(prompt_ticker(["AAPL", "MSFT"]), "ALL")
+
+    async def test_batch_continues_after_ticker_failure(self):
+        calls = []
+
+        async def fake_run_pipeline(ticker, ingestor):
+            calls.append(ticker)
+            if ticker == "MSFT":
+                raise RuntimeError("simulated failure")
+
+        with patch("main.run_pipeline", side_effect=fake_run_pipeline):
+            failures = await run_all_tickers(["AAPL", "MSFT", "NVDA"])
+
+        self.assertEqual(calls, ["AAPL", "MSFT", "NVDA"])
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][0], "MSFT")
+        self.assertIn("simulated failure", failures[0][1])
 
 
 if __name__ == "__main__":

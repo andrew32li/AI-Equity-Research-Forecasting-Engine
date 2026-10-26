@@ -101,15 +101,44 @@ async def run_pipeline(
         print(f"  Reasoning: {fc.reasoning}\n")
 
 
+async def run_all_tickers(
+    tickers: List[str], ingestor: Optional[DataIngestionPipeline] = None
+) -> List[tuple[str, str]]:
+    failures: List[tuple[str, str]] = []
+    print(f"[*] Running {len(tickers)} ticker(s) sequentially.")
+    for index, ticker in enumerate(tickers, start=1):
+        print(f"\n[*] Batch progress: {index}/{len(tickers)}")
+        try:
+            await run_pipeline(ticker, ingestor)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            failures.append((ticker, error))
+            print(f"[Error] {ticker} failed: {error}")
+
+    print("\n--- BATCH SUMMARY ---")
+    print(f"Completed: {len(tickers) - len(failures)}/{len(tickers)}")
+    if failures:
+        print("Failed tickers:")
+        for ticker, error in failures:
+            print(f"- {ticker}: {error}")
+    else:
+        print("All tickers completed successfully.")
+    return failures
+
+
 def prompt_ticker(available_tickers: Optional[List[str]] = None) -> str:
     if available_tickers:
         print(f"Tickers in the Capital IQ Report worksheet: {', '.join(available_tickers)}")
     while True:
-        prompt = "Enter a ticker symbol from the Report worksheet: " if available_tickers else (
-            "Enter ticker symbol (e.g. AAPL, NVDA, MSFT): "
+        prompt = (
+            "Enter a ticker symbol or ALL to evaluate every ticker: "
+            if available_tickers
+            else "Enter ticker symbol (e.g. AAPL, NVDA, MSFT): "
         )
         symbol = input(prompt).strip().upper()
         if symbol:
+            if available_tickers and symbol == "ALL":
+                return symbol
             if available_tickers and symbol not in available_tickers:
                 print("Ticker is not listed in the Report worksheet. Update report.xlsx or choose a listed ticker.")
                 continue
@@ -126,4 +155,7 @@ if __name__ == "__main__":
     if not ticker_list:
         raise SystemExit("[Error] No tickers found in the Report worksheet of report.xlsx.")
     ticker_input = prompt_ticker(ticker_list)
-    asyncio.run(run_pipeline(ticker_input, pipeline))
+    if ticker_input == "ALL":
+        asyncio.run(run_all_tickers(ticker_list, pipeline))
+    else:
+        asyncio.run(run_pipeline(ticker_input, pipeline))
