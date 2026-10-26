@@ -32,7 +32,7 @@ The council defines twelve seats, but a seat definition does not mean its data s
 ## Requirements
 
 - Python 3.10 or later (developed and tested with Python 3.13).
-- An OpenAI API key for the AI analysis. The configured default models are `gpt-4o-mini` for specialist seats and `gpt-4o` for debate and final forecasts; API access and model availability are subject to your account.
+- An OpenAI API key for the AI analysis. 
 - A refreshed Capital IQ Excel workbook for Capital IQ fields. You must have appropriate rights to use and store the data.
 - A FRED API key is optional; without it, macro data is unavailable.
 
