@@ -1,4 +1,4 @@
-# Stock Evaluator Engine
+# AI Equity Research & Forecasting Engine
 
 A Python command-line research prototype that combines market and fundamental data with structured AI analysis. It evaluates a selected ticker through specialist “seats,” creates an adversarial bull/bear/challenger debate, and produces probabilistic outlooks for three horizons. Forecasts are saved locally and can be scored later against observed prices.
 
