@@ -533,18 +533,77 @@ class BatchTickerTests(unittest.IsolatedAsyncioTestCase):
     async def test_batch_continues_after_ticker_failure(self):
         calls = []
 
+        def make_verdict(ticker):
+            return CouncilVerdict(
+                ticker=ticker,
+                forecasts=[
+                    HorizonForecast(
+                        horizon="1_week",
+                        direction=Signal.UP,
+                        probability_up=0.6,
+                        reasoning="Positive short-term momentum.",
+                    ),
+                    HorizonForecast(
+                        horizon="3_months",
+                        direction=Signal.EVEN,
+                        probability_up=0.5,
+                        reasoning="Mixed medium-term factors.",
+                    ),
+                    HorizonForecast(
+                        horizon="1_year",
+                        direction=Signal.DOWN,
+                        probability_up=0.4,
+                        reasoning="Long-term risks remain.",
+                    ),
+                ],
+                seat_breakdown=[
+                    SeatOpinion(
+                        seat_name="Financials",
+                        signal=Signal.EVEN,
+                        confidence=0.5,
+                        summary="Financial metrics are mixed.",
+                    )
+                ],
+                debate=DebateArguments(
+                    bull_case="bull case details",
+                    bear_case="bear case details",
+                    challenger_critique="challenger critique details",
+                ),
+            )
+
         async def fake_run_pipeline(ticker, ingestor):
             calls.append(ticker)
             if ticker == "MSFT":
                 raise RuntimeError("simulated failure")
+            return make_verdict(ticker)
 
-        with patch("main.run_pipeline", side_effect=fake_run_pipeline):
-            failures = await run_all_tickers(["AAPL", "MSFT", "NVDA"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("main.run_pipeline", side_effect=fake_run_pipeline):
+                failures = await run_all_tickers(
+                    ["AAPL", "MSFT", "NVDA"],
+                    report_directory=Path(temp_dir),
+                )
 
-        self.assertEqual(calls, ["AAPL", "MSFT", "NVDA"])
-        self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0][0], "MSFT")
-        self.assertIn("simulated failure", failures[0][1])
+            self.assertEqual(calls, ["AAPL", "MSFT", "NVDA"])
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0][0], "MSFT")
+            self.assertIn("simulated failure", failures[0][1])
+
+            report_paths = list(Path(temp_dir).glob("equity_research_report_*.docx"))
+            self.assertEqual(len(report_paths), 1)
+            with ZipFile(report_paths[0]) as report:
+                document_xml = ET.fromstring(report.read("word/document.xml"))
+            report_text = " ".join(
+                text.text or ""
+                for text in document_xml.iter(
+                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+                )
+            )
+
+            self.assertIn("Forecast Summary", report_text)
+            self.assertIn("bull case details", report_text)
+            self.assertIn("MSFT", report_text)
+            self.assertIn("simulated failure", report_text)
 
 
 if __name__ == "__main__":

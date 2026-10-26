@@ -7,6 +7,7 @@ venv/
 !.env.example
 report.xlsx
 forecasts.sqlite3
+equity_research_report_*.docx
 *.sqlite3
 *.db
 ~$*.xlsx
