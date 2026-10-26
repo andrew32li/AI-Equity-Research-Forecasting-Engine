@@ -128,7 +128,3 @@ Tests are local and should not require live Yahoo, FRED, Capital IQ, or OpenAI c
 - Add a forecast-history/reporting command and database migration/versioning strategy.
 - Separate providers and analysis orchestration behind small interfaces so sources and model providers can be changed and tested independently.
 - Add logging, retry/backoff policies, API cost tracking, and concurrency/rate limits appropriate to each provider.
-
-## Responsible use
-
-AI-generated opinions and probabilities can be wrong, incomplete, or overconfident. Treat them as research hypotheses, not recommendations. Verify important data and filings at the original source, consider transaction costs and risk, and never commit API credentials or data you are not authorized to share.
