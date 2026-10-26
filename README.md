@@ -67,7 +67,7 @@ The ticker prompt is built from non-empty tickers in the workbook's `Report` wor
 
 ## Capital IQ workbook
 
-The worksheet is named `Report`. Put headers in row 1 and one ticker per row beginning in row 2. The importer recognizes these fields:
+The worksheet is named `Report`. Put headers in row 1 and one ticker per row beginning in row 2. The importer recognizes the fields currently in the excel:
 
 ```text
 ticker,as_of_date,target_mean,target_high,target_low,number_of_analysts,recommendation_key,forward_eps,forward_revenue,eps_growth_pct,revenue_growth_pct,pe_ratio,price_to_book,free_cash_flow,market_cap,total_debt,cash_and_equivalents,operating_margins_pct,ebitda_margin_pct,held_percent_institutions_pct
