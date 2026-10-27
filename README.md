@@ -100,7 +100,6 @@ Tests are local and should not require live Yahoo, FRED, Capital IQ, or OpenAI c
 ### Priority 1 — safe and reproducible GitHub publication
 
 - Add a `.gitignore` for Python caches, virtual environments, `.env` files, generated SQLite databases, and local workbooks.
-- Do not commit `report.xlsx` or Capital IQ cached results unless the license explicitly permits public redistribution. Publish a blank/template workbook or schema documentation instead, and provide the real workbook privately to authorized users.
 - Check the complete repository history and files for API keys, personal data, and licensed data before pushing. If a key was exposed, revoke and replace it.
 - Add `requirements.txt` (or `pyproject.toml`) with tested dependency versions, a supported Python range, and repeatable setup instructions.
 - Choose a project license only after deciding what permissions you want to grant; do not assume that public visibility automatically grants reuse rights.
