@@ -20,7 +20,10 @@ CloseLookup = Callable[[str, date, date], List[Tuple[date, float]]]
 
 class ForecastStore:
     def __init__(self, database_path: Optional[Path] = None):
-        self.database_path = database_path or Path(__file__).with_name("forecasts.sqlite3")
+        self.database_path = database_path or (
+            Path(__file__).resolve().parent / "forecast_db" / "forecasts.sqlite3"
+        )
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
