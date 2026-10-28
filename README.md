@@ -14,7 +14,7 @@ A Python command-line research prototype that combines market and fundamental da
 
 Forecast direction must match its probability: `UP` above 55%, `DOWN` below 45%, and `EVEN` from 45% through 55%, inclusive. Backtest results are historical summaries, not proof of future performance or calibration.
 
-## Current coverage and limitations
+## Current coverage and limitations 
 
 | Area | Current inputs / behavior |
 |---|---|
