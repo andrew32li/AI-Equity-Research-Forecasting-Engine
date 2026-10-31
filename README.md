@@ -86,7 +86,7 @@ Place a workbook named `report.xlsx` beside `main.py`, refresh its Capital IQ fo
 py main.py
 ```
 
-The ticker prompt is built from non-empty tickers in the workbook's `Report` worksheet. Enter one listed symbol to analyze just that stock, or enter `ALL` to analyze every listed ticker sequentially. A failed ticker is reported and the batch continues; a failure summary is printed at the end. Batch runs create a timestamped `equity_research_report_*.docx` in the project directory with forecast summaries, seat votes, debate, reasoning, and any ticker errors. Running all tickers can take a while and may generate substantial OpenAI API usage/costs. The workbook must be saved after the Capital IQ refresh because this program reads cached formula results; it does not calculate Capital IQ formulas.
+The ticker prompt is built from non-empty tickers in the workbook's `Report` worksheet. Enter one listed symbol to analyze just that stock, or enter `ALL` to analyze every listed ticker sequentially. A single-ticker run creates a timestamped `equity_research_report_<TICKER>_*.docx` in the project directory. Batch runs create a timestamped `equity_research_report_*.docx` containing forecast summaries, seat votes, debate, reasoning, and any ticker errors. A failed ticker is reported and the batch continues; a failure summary is printed at the end. Running all tickers can take a while and may generate substantial OpenAI API usage/costs. The workbook must be saved after the Capital IQ refresh because this program reads cached formula results; it does not calculate Capital IQ formulas.
 
 
 ## Capital IQ workbook

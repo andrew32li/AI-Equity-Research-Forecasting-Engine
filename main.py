@@ -109,6 +109,7 @@ def write_batch_report(
     verdicts: List[CouncilVerdict],
     failures: List[tuple[str, str]],
     output_path: Path,
+    report_title: str = "Batch Research Report",
 ) -> Path:
     document = ET.Element(_word_tag("document"))
     body = ET.SubElement(document, _word_tag("body"))
@@ -120,7 +121,7 @@ def write_batch_report(
         bold=True,
         color="1F4E78",
     )
-    _add_word_paragraph(body, "Batch Research Report", font_size=28, bold=True)
+    _add_word_paragraph(body, report_title, font_size=28, bold=True)
     _add_word_paragraph(
         body,
         f"Generated: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}",
@@ -269,6 +270,25 @@ def write_batch_report(
             ET.tostring(document, encoding="utf-8", xml_declaration=True),
         )
     return output_path
+
+
+def write_ticker_report(
+    verdict: CouncilVerdict, report_directory: Optional[Path] = None
+) -> Path:
+    output_directory = report_directory or Path(__file__).resolve().parent
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    report_path = (
+        output_directory
+        / f"equity_research_report_{verdict.ticker}_{timestamp}.docx"
+    )
+    write_batch_report(
+        [verdict],
+        [],
+        report_path,
+        report_title="Equity Research Report",
+    )
+    print(f"[*] Word report saved to: {report_path}")
+    return report_path
 
 
 def _lookup_daily_closes(ticker: str, start: date, end: date):
@@ -428,4 +448,6 @@ if __name__ == "__main__":
     if ticker_input == "ALL":
         asyncio.run(run_all_tickers(ticker_list, pipeline))
     else:
-        asyncio.run(run_pipeline(ticker_input, pipeline))
+        verdict = asyncio.run(run_pipeline(ticker_input, pipeline))
+        if verdict is not None:
+            write_ticker_report(verdict)

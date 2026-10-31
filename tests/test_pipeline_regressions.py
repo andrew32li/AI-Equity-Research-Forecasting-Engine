@@ -23,7 +23,7 @@ from council import (
 )
 from forecast_store import ForecastStore
 from ingestion import DataIngestionPipeline
-from main import prompt_ticker, run_all_tickers
+from main import prompt_ticker, run_all_tickers, write_ticker_report
 
 
 def _write_capital_iq_workbook(path: Path, headers, rows):
@@ -802,6 +802,66 @@ class BatchTickerTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("bull case details", report_text)
             self.assertIn("MSFT", report_text)
             self.assertIn("simulated failure", report_text)
+
+
+class SingleTickerReportTests(unittest.TestCase):
+    def test_writes_single_ticker_word_report_to_requested_directory(self):
+        verdict = CouncilVerdict(
+            ticker="AAPL",
+            forecasts=[
+                HorizonForecast(
+                    horizon="1_week",
+                    direction=Signal.UP,
+                    probability_up=0.6,
+                    reasoning="Positive short-term momentum.",
+                ),
+                HorizonForecast(
+                    horizon="3_months",
+                    direction=Signal.EVEN,
+                    probability_up=0.5,
+                    reasoning="Mixed medium-term factors.",
+                ),
+                HorizonForecast(
+                    horizon="1_year",
+                    direction=Signal.DOWN,
+                    probability_up=0.4,
+                    reasoning="Long-term risks remain.",
+                ),
+            ],
+            seat_breakdown=[
+                SeatOpinion(
+                    seat_name="Financials",
+                    signal=Signal.EVEN,
+                    confidence=0.5,
+                    summary="Financial metrics are mixed.",
+                )
+            ],
+            debate=DebateArguments(
+                bull_case="bull case details",
+                bear_case="bear case details",
+                challenger_critique="challenger critique details",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = write_ticker_report(verdict, Path(temp_dir))
+
+            self.assertTrue(report_path.is_file())
+            self.assertEqual(report_path.parent, Path(temp_dir))
+            self.assertIn("AAPL", report_path.name)
+            with ZipFile(report_path) as report:
+                document_xml = ET.fromstring(report.read("word/document.xml"))
+            report_text = " ".join(
+                text.text or ""
+                for text in document_xml.iter(
+                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+                )
+            )
+
+        self.assertIn("Equity Research Report", report_text)
+        self.assertIn("AAPL", report_text)
+        self.assertIn("Positive short-term momentum.", report_text)
+        self.assertIn("bull case details", report_text)
 
 
 if __name__ == "__main__":
