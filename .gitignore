@@ -6,6 +6,7 @@ venv/
 .env.*
 !.env.example
 report.xlsx
+congress_trades.csv
 forecasts.sqlite3
 equity_research_report_*.docx
 *.sqlite3

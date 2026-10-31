@@ -1,12 +1,14 @@
 import asyncio
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 import xml.etree.ElementTree as ET
 
+import pandas as pd
 from pydantic import ValidationError
 
 from council import (
@@ -136,6 +138,151 @@ class InsiderValidationTests(unittest.TestCase):
         self.assertEqual(opinion.signal, Signal.NO_READ)
         self.assertIsNone(payload)
 
+    def test_form4_parser_only_counts_open_market_purchase_and_sale_codes(self):
+        xml = b"""<ownershipDocument>
+        <reportingOwner><reportingOwnerId><rptOwnerName>Jane Doe</rptOwnerName></reportingOwnerId></reportingOwner>
+        <nonDerivativeTable>
+          <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-01</value></transactionDate>
+            <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
+            <transactionAmounts>
+              <transactionShares><value>10</value></transactionShares>
+              <transactionPricePerShare><value>100</value></transactionPricePerShare>
+            </transactionAmounts>
+          </nonDerivativeTransaction>
+          <nonDerivativeTransaction>
+            <transactionDate><value>2026-10-02</value></transactionDate>
+            <transactionCoding><transactionCode>S</transactionCode></transactionCoding>
+            <transactionAmounts>
+              <transactionShares><value>5</value></transactionShares>
+              <transactionPricePerShare><value>120</value></transactionPricePerShare>
+            </transactionAmounts>
+          </nonDerivativeTransaction>
+          <nonDerivativeTransaction>
+            <transactionCoding><transactionCode>A</transactionCode></transactionCoding>
+          </nonDerivativeTransaction>
+        </nonDerivativeTable></ownershipDocument>"""
+
+        transactions = DataIngestionPipeline._parse_form4_xml(
+            xml, "2026-10-03", "https://www.sec.gov/example.xml"
+        )
+
+        self.assertEqual([row["transaction_code"] for row in transactions], ["P", "S"])
+        self.assertEqual([row["value_usd"] for row in transactions], [1000, 600])
+        self.assertEqual(transactions[0]["insider"], "Jane Doe")
+
+
+class CongressionalSourceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_house_matching_returns_source_link_and_marks_best_effort(self):
+        pipeline = DataIngestionPipeline()
+
+        async def fake_reports(_client):
+            return (
+                [
+                    {
+                        "member_name": "Representative Example",
+                        "filing_date": date.today().isoformat(),
+                        "state_district": "CA01",
+                        "source_url": "https://disclosures-clerk.house.gov/example.pdf",
+                        "report_text": "Apple Inc. purchase amount $1,001-$15,000",
+                    }
+                ],
+                None,
+                False,
+            )
+
+        pipeline._load_house_ptr_reports = fake_reports
+        pipeline._load_senate_congress_rows = lambda _ticker: ([], None)
+
+        payload, error, truncated = await pipeline._fetch_congress_trades(
+            "AAPL", ["Apple Inc."], object()
+        )
+
+        self.assertIsNone(error)
+        self.assertFalse(truncated)
+        self.assertEqual(len(payload["house_events"]), 1)
+        self.assertEqual(
+            payload["house_events"][0]["source_url"],
+            "https://disclosures-clerk.house.gov/example.pdf",
+        )
+        self.assertIn("best effort", payload["limitations"])
+
+class SenateCsvSourceTests(unittest.TestCase):
+    def test_loads_recent_senate_records_from_local_csv(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "congress_trades.csv"
+            today = datetime.now(timezone.utc).date()
+            csv_path.write_text(
+                "Ticker,Chamber,Transaction_Date,Disclosure_Date,Asset_Description,"
+                "Transaction_Type,Amount_Range,Source_Url\n"
+                f"AAPL,Senate,{today.isoformat()},"
+                f"{today.isoformat()},Apple Inc.,Purchase,"
+                '"$1,001-$15,000",https://efdsearch.senate.gov/example\n'
+                f"AAPL,Senate,{(today + timedelta(days=1)).isoformat()},"
+                f"{today.isoformat()},Apple Inc.,Purchase,"
+                '"$1,001-$15,000",https://efdsearch.senate.gov/future\n',
+                encoding="utf-8",
+            )
+            pipeline = DataIngestionPipeline(
+                congress_trades_csv_path=str(csv_path)
+            )
+
+            rows, error = pipeline._load_senate_congress_rows("AAPL")
+
+        self.assertIsNone(error)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["amount_range"], "$1,001-$15,000")
+
+
+class HouseDisclosureMatchingTests(unittest.TestCase):
+    def test_single_character_ticker_requires_issuer_name_match(self):
+        self.assertIsNone(
+            DataIngestionPipeline._match_house_report_asset(
+                "V", ["Visa Inc."], "A member disclosed a transaction in V."
+            )
+        )
+        self.assertEqual(
+            DataIngestionPipeline._match_house_report_asset(
+                "V", ["Visa Inc."], "Transaction involved Visa Inc."
+            ),
+            "visa inc.",
+        )
+
+    def test_multi_character_ticker_matches_as_a_standalone_symbol(self):
+        self.assertEqual(
+            DataIngestionPipeline._match_house_report_asset(
+                "AAPL", ["Apple Inc."], "AAPL purchase was reported."
+            ),
+            "AAPL",
+        )
+        self.assertEqual(
+            DataIngestionPipeline._match_house_report_asset(
+                "AAPL", ["Apple Inc."], "Transaction involved Pineapple Inc."
+            ),
+            None,
+        )
+
+
+class OptionsPayloadTests(unittest.TestCase):
+    def test_handles_missing_yahoo_option_chain_columns(self):
+        class FakeTicker:
+            options = ["2027-01-15"]
+
+            def option_chain(self, _expiration):
+                return SimpleNamespace(
+                    calls=pd.DataFrame({"volume": [5]}),
+                    puts=pd.DataFrame({"openInterest": [10]}),
+                )
+
+        payload = DataIngestionPipeline._build_options_payload(FakeTicker())
+
+        self.assertEqual(payload["call_volume"], 5)
+        self.assertEqual(payload["put_volume"], 0)
+        self.assertEqual(payload["call_open_interest"], 0)
+        self.assertEqual(payload["put_open_interest"], 10)
+        self.assertNotIn("put_call_open_interest_ratio", payload)
+        self.assertIsNone(payload["call_implied_volatility_mean_pct"])
+
 
 class SourceStatusTests(unittest.TestCase):
     def test_unavailable_source_skips_directional_opinion(self):
@@ -163,6 +310,24 @@ class SourceStatusTests(unittest.TestCase):
         self.assertIn("contextual macro information", prompt)
         self.assertIn('"yield_curve_spread_10y_2y": 0.31', prompt)
 
+    def test_congress_prompt_warns_against_overclaiming_matches(self):
+        prompt = TickerCouncil._build_seat_prompt(
+            {"name": "Congress_Trades", "desc": "disclosure data"},
+            {"house_events": []},
+        )
+
+        self.assertIn("best effort", prompt)
+        self.assertIn("do not prove that no trade occurred", prompt)
+
+    def test_institutional_prompt_distinguishes_ownership_from_flow(self):
+        prompt = TickerCouncil._build_seat_prompt(
+            {"name": "Institutional_Flows", "desc": "ownership and short interest"},
+            {"held_percent_institutions_pct": 70.0},
+        )
+
+        self.assertIn("not evidence of recent buying or selling", prompt)
+        self.assertIn("Do not claim access to 13F accumulations", prompt)
+
 
 class FinancialPayloadTests(unittest.TestCase):
     def test_computes_free_cash_flow_yield_only_with_valid_inputs(self):
@@ -178,6 +343,21 @@ class FinancialPayloadTests(unittest.TestCase):
         )
 
         self.assertIsNone(payload["free_cash_flow_yield_pct"])
+
+    def test_converts_yahoo_ownership_and_short_interest_fractions_to_percent(self):
+        payload = DataIngestionPipeline._build_institutional_payload(
+            {
+                "heldPercentInstitutions": 0.7,
+                "heldPercentInsiders": 0.02,
+                "shortPercentOfFloat": 0.04,
+                "sharesShort": 1000,
+            }
+        )
+
+        self.assertAlmostEqual(payload["held_percent_institutions_pct"], 70.0)
+        self.assertAlmostEqual(payload["held_percent_insiders_pct"], 2.0)
+        self.assertAlmostEqual(payload["short_percent_of_float_pct"], 4.0)
+        self.assertEqual(payload["shares_short"], 1000)
 
     def test_loads_capital_iq_workbook_row_and_formula_values(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -266,6 +446,11 @@ class FinancialPayloadTests(unittest.TestCase):
                 yahoo_data = {
                     "Financials": {"pe_ratio": 20.0, "market_cap": 1000.0},
                     "Earnings_Estimates": {"forward_eps": 5.0},
+                    "News_Events": {
+                        "recent_headlines": [
+                            {"title": "Test headline", "publisher": "Test", "link": ""}
+                        ]
+                    },
                 }
                 pipeline._fetch_yahoo_bundle = lambda ticker: (yahoo_data, {})
 
@@ -273,6 +458,19 @@ class FinancialPayloadTests(unittest.TestCase):
                     return {}, None
 
                 pipeline._fetch_fred_macro = fetch_macro
+
+                async def fetch_congress(_ticker, _company_names, _client):
+                    return (
+                        {
+                            "house_reports_scanned": 1,
+                            "house_events": [],
+                            "senate_events": [],
+                        },
+                        None,
+                        False,
+                    )
+
+                pipeline._fetch_congress_trades = fetch_congress
                 data = await pipeline.fetch_all("AAPL")
 
                 self.assertEqual(data["Financials"]["pe_ratio"], 20.0)

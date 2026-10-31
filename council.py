@@ -95,14 +95,14 @@ SEAT_CONFIGS = [
     {"name": "Financials", "desc": "Provided valuation ratios, free cash flow and free-cash-flow yield when available, debt, cash, and margin metrics."},
     {"name": "Analyst_Targets", "desc": "Consensus price targets, upgrades/downgrades, estimate dispersion."},
     {"name": "Earnings_Estimates", "desc": "EPS consensus revisions, revenue drift, historical earnings surprise rates."},
-    {"name": "Insider_Trades", "desc": "Form 4 purchases/disposals by C-suite executives and board directors."},
-    {"name": "Congress_Trades", "desc": "Capitol Hill stock disclosure activity and committee cross-holdings."},
-    {"name": "News_Events", "desc": "Media sentiment catalysts, product announcements, management turnover."},
-    {"name": "SEC_Filings", "desc": "10-Q/10-K notes, auditor warnings, pending litigation, dilution risks."},
-    {"name": "Institutional_Flows", "desc": "13F accumulations, hedge fund concentration, short interest % of float."},
-    {"name": "Options_Market", "desc": "Put/Call ratio, implied volatility skew, gamma walls, unusual options sweeps."},
+    {"name": "Insider_Trades", "desc": "Verified SEC Form 4 open-market purchases and sales by company insiders."},
+    {"name": "Congress_Trades", "desc": "Best-effort House PTR matches and manually imported Senate stock disclosures; reports can be delayed and transaction amounts are ranges."},
+    {"name": "News_Events", "desc": "Recent headlines from Yahoo Finance or a Google News RSS fallback; headlines are not verified company filings."},
+    {"name": "SEC_Filings", "desc": "Recent 10-K/10-Q risk-factor excerpts and 8-K filing excerpts from SEC EDGAR."},
+    {"name": "Institutional_Flows", "desc": "Institutional ownership and short-interest metrics; ownership is a snapshot, not trading flow."},
+    {"name": "Options_Market", "desc": "Yahoo Finance options-chain snapshots: put/call volume and open-interest ratios and implied volatility; snapshots do not identify trade direction or unusual flow."},
     {"name": "Macro_Economy", "desc": "Treasury yield curve and macro context; a yield spread alone is not directional evidence for an individual stock."},
-    {"name": "Related_Markets", "desc": "Sector ETF relative strength, supply chain peer shifts, currency/commodity beta."}
+    {"name": "Related_Markets", "desc": "Stock performance compared with SPY and a Yahoo Finance sector ETF proxy; this does not cover supply-chain, currency, or commodity relationships."}
 ]
 
 
@@ -165,6 +165,16 @@ class PrePromptValidator:
     @staticmethod
     def validate_insider_trades(data: Optional[Dict[str, Any]]) -> Tuple[Optional[SeatOpinion], Optional[Dict[str, Any]]]:
         if not data or not data.get("filings"):
+            if data and data.get("filing_count"):
+                return SeatOpinion(
+                    seat_name="Insider_Trades",
+                    signal=Signal.NO_READ,
+                    confidence=0.0,
+                    summary=(
+                        f"Found {data['filing_count']} Form 4 filing(s), but no verified "
+                        "open-market purchase or sale transactions with usable values."
+                    ),
+                ), None
             return SeatOpinion(
                 seat_name="Insider_Trades",
                 signal=Signal.NO_READ,
@@ -407,11 +417,45 @@ Treat these as model estimates, not empirically calibrated probabilities.
 
     @staticmethod
     def _build_seat_prompt(seat: Dict[str, str], compacted_payload: Any) -> str:
-        domain_specific_rule = (
-            "- A positive or inverted yield curve is contextual macro information, not proof that this ticker will rise or fall.\n"
-            if seat["name"] == "Macro_Economy"
-            else ""
-        )
+        domain_rules = {
+            "Macro_Economy": (
+                "- A positive or inverted yield curve is contextual macro information, "
+                "not proof that this ticker will rise or fall.\n"
+            ),
+            "Congress_Trades": (
+                "- House report matches are best effort; treat them as leads and use "
+                "the linked report excerpt, not the ticker match alone, as evidence.\n"
+                "- No matching records in the limited scan do not prove that no trade occurred.\n"
+                "- Reported amounts are ranges and disclosures may be delayed; do not "
+                "invent exact amounts or real-time flows.\n"
+            ),
+            "Options_Market": (
+                "- Treat option volume/open-interest ratios and implied volatility as "
+                "a snapshot; do not call them unusual options flow or infer buyer intent.\n"
+            ),
+            "Related_Markets": (
+                "- Sector ETF returns are proxies; do not describe them as official "
+                "sector-index returns or infer a causal relationship.\n"
+            ),
+            "Insider_Trades": (
+                "- Only SEC Form 4 transaction codes P and S are included as open-market "
+                "purchases/sales; do not treat awards, grants, or tax withholding as trades.\n"
+            ),
+            "Institutional_Flows": (
+                "- Ownership percentages are snapshots, not evidence of recent buying or "
+                "selling; short-interest fields may be delayed.\n"
+                "- Do not claim access to 13F accumulations or hedge-fund concentration "
+                "unless those metrics are explicitly present in the supplied data.\n"
+            ),
+            "SEC_Filings": (
+                "- Filing excerpts may be partial; cite the form/date and do not claim "
+                "that an excerpt represents the complete filing.\n"
+            ),
+            "News_Events": (
+                "- Headlines may be duplicated, stale, or about a similarly named entity; "
+                "do not infer a fact that is not present in the supplied title.\n"
+            ),
+        }.get(seat["name"], "")
         return (
             f"You are the {seat['name']} Specialist on an investment council.\n"
             f"Domain Focus: {seat['desc']}.\n\n"
@@ -420,6 +464,6 @@ Treat these as model estimates, not empirically calibrated probabilities.
             "- Mention only metrics explicitly present in the supplied data; do not invent or imply missing metrics.\n"
             "- Do not extrapolate beyond your domain.\n"
             "- If data is conflicting or neutral, return EVEN.\n"
-            f"{domain_specific_rule}\n"
+            f"{domain_rules}\n"
             f"Domain Data:\n{json.dumps(compacted_payload, indent=2)}"
         )
